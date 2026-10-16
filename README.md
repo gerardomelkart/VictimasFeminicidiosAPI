@@ -4,7 +4,9 @@ API independiente de SIIID, basada en .NET 10. Primero se prueba en desarrollo; 
 
 ## Estado de esta entrega
 
-Preparacion del repositorio y configuracion por ambiente. Todavia no incluye autenticacion, consultas ni exportaciones. No publicar esta plantilla como servicio operativo.
+Autenticacion JWT implementada, con acceso del DIF mediante cuentas externas y de superusuarios SIIID mediante sus cuentas actuales. Administracion de cuentas externas disponible solo para superusuarios. Todavia no incluye consultas de feminicidios ni exportaciones.
+
+Antes de iniciar, ejecutar en desarrollo el SQL entregado por el chat para `dbo.api_feminicidios_usuario`. La API no crea ni migra tablas automaticamente. Los repositorios originales SIIID y BD no se modifican.
 
 ## Desarrollo
 
@@ -18,7 +20,47 @@ Para una conexion local diferente, usar Administrar secretos de usuario en Visua
 dotnet user-secrets set "ConnectionStrings:SiiidDb" "CADENA_LOCAL" --project VictimasFeminicidiosAPI
 ```
 
-La clave JWT propia se configurara como `Jwt:SecretKey` en User Secrets. Generar 64 bytes aleatorios criptograficos y codificarlos en Base64; usar otra clave para produccion. No reutilizar las claves de SIIID, ni ponerlas en archivos versionados.
+Configurar la clave JWT propia como `Jwt:SecretKey` en User Secrets. En PowerShell, desde la raiz del repositorio:
+
+```powershell
+$jwtBytes = New-Object byte[] 64
+$jwtRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$jwtRng.GetBytes($jwtBytes)
+$jwtRng.Dispose()
+$jwtSecret = [Convert]::ToBase64String($jwtBytes)
+dotnet user-secrets set "Jwt:SecretKey" $jwtSecret --project VictimasFeminicidiosAPI
+Remove-Variable jwtSecret, jwtBytes
+
+dotnet run --project VictimasFeminicidiosAPI --launch-profile https
+```
+
+La API rechaza el arranque si falta la conexion o si la clave no es Base64 de al menos 64 bytes. Usar otra clave aleatoria para produccion. No reutilizar claves de SIIID ni versionarlas. Mantener esta clave estable entre ejecuciones; cambiarla invalida todos los tokens.
+
+URL local: `https://localhost:7040`. OpenAPI JSON solamente en desarrollo: `/openapi/v1.json`. Si hace falta, confiar en el certificado de desarrollo con `dotnet dev-certs https --trust`. No hay pantalla de login ni Swagger UI.
+
+## Probar el acceso y crear la cuenta DIF
+
+1. `POST /api/v1/auth/token`, con JSON `{"origen":"SIIID","usuario":"TU_SUPERUSUARIO","password":"TU_PASSWORD"}`. Debe ser una cuenta activa con rol activo SUPER_USUARIO. Si requiere cambiar contrasena, realizar el cambio en SIIID antes de ingresar aqui.
+2. Copiar `accessToken` de la respuesta. Enviar `Authorization: Bearer TOKEN` en las peticiones protegidas.
+3. `GET /api/v1/auth/me` comprueba el acceso. `GET /api/v1/usuarios` lista las cuentas externas sin hashes.
+4. Crear DIF con `POST /api/v1/usuarios`, JSON `{"usuario":"DIF","nombre":"Consulta DIF","institucion":"DIF","password":"CONTRASENA_PRIVADA_DE_AL_MENOS_12_CARACTERES"}`. Elegir la contrasena fuera de Git; la API almacena BCrypt con costo 12, no texto claro. Maximo 72 bytes UTF-8 para evitar truncamiento BCrypt.
+5. DIF solicita su token con `POST /api/v1/auth/token`, JSON `{"origen":"EXTERNO","usuario":"DIF","password":"SU_PASSWORD"}`. Tiene acceso de consulta; no puede administrar usuarios.
+6. Un superusuario puede deshabilitar mediante `PATCH /api/v1/usuarios/ID/habilitado`, JSON `{"habilitado":false}`, o restablecer contrasena con `PUT /api/v1/usuarios/ID/password`, JSON `{"password":"NUEVA_PASSWORD_PRIVADA"}`.
+
+No existe registro publico. El origen es explicito para evitar confusiones entre nombres coincidentes. No se aceptan tokens emitidos por la API SIIID.
+
+JWT: HS512, emisor y audiencia propios, 15 minutos y tolerancia de reloj de 30 segundos. Cada peticion comprueba en BD el estado de la cuenta, rol, cambio obligatorio y huella de credencial. Cambiar password o deshabilitar invalida el acceso. La version ROWVERSION externa tambien impide revivir un token al reactivar la cuenta.
+
+Limites iniciales por proceso: 60 solicitudes/minuto globales y 5 intentos/minuto por IP al login (HTTP 429 al exceder). No se confia en cabeceras de proxy aportadas por clientes. Al publicar, configurar el proxy Apache de confianza para HTTPS/IP real y revisar limites. Respuestas sin cache y errores genericos. Logs de acceso/administracion por ID, sin contrasenas, tokens ni datos nominales.
+
+## Verificacion automatica
+
+```powershell
+dotnet build VictimasFeminicidiosAPI.slnx
+dotnet run --project VictimasFeminicidiosAPI.RegressionTests
+```
+
+Las pruebas usan servidor en memoria y repositorio simulado; cubren acceso anonimo, roles, BCrypt, JWT invalidos, revocacion y limite de intentos. No sustituyen la prueba contra la base local de SIIID. No leen ni modifican bases reales.
 
 ## Produccion (posterior a pruebas)
 
@@ -32,14 +74,13 @@ No copiar las credenciales de la API SIIID al repositorio. Usar `Encrypt=True` y
 
 Ruta prevista: `https://cni03.sspc.gob.mx/api-feminicidios/`. Servicio y puerto local propios; comprobar disponibilidad al publicar. Todavia no se configura Apache ni systemd.
 
-## Siguiente implementacion
+## Pendiente: consulta y descargas
 
-1. Revisar en SIIID la verificacion de contrasenas, usuarios SUPER_USUARIO y condiciones exactas de aprobacion administrativa del consolidado mensual.
-2. Entregar el SQL de la tabla de usuarios externos por el chat. El propietario lo ejecuta y lo guarda en el repo de BD.
-3. Implementar autenticacion del DIF y superusuarios, JWT de 15 minutos con validacion de firma, algoritmo, emisor, audiencia y vencimiento. Rechazar configuracion faltante o debil al iniciar; no usar claves de respaldo.
-4. Proteger todos los endpoints de datos, comprobar cuentas habilitadas, limitar intentos de acceso y registrar operaciones sin contrasenas, tokens ni datos nominales.
-5. Implementar una consulta parametrizada compartida por JSON y Excel: anio/mes de corte, consolidado aprobado y aceptado administrativamente, feminicidios consumados. Excluir tentativas, previos, mixtos y Federal.
-6. Respetar las 48 columnas con encabezado del Excel de referencia, sin ReferenciaCarga ni columna vacia, con MesCorte en letras. Verificar la cardinalidad victima/delito y comparar resultados con el ejemplo.
-7. Probar accesos permitidos/denegados, JWT alterados/vencidos, aprobaciones y equivalencia JSON/Excel antes de publicar.
+La revision de `InformeRepository.SabanasVictimasEstatales.cs` en SIIID confirma el uso de registros activos unidos con `carga` activa y estos estados:
 
-Solo se modifica este repositorio, sin ramas adicionales y con un commit por entrega. Los repositorios SIIID son referencia de lectura.
+- `tipo_carga = 'CARGA_INICIAL'` con `estado = 'CONFIRMADO'`.
+- `tipo_carga = 'ACTUALIZACION'` con `estado = 'CONFIRMADO_ACTUALIZACION'`.
+
+La consulta de la siguiente entrega debe usar anio/mes de corte y feminicidios consumados, sin previos, mixtos ni Federal. Respetara las 48 columnas con encabezado del Excel de referencia, sin ReferenciaCarga ni columna vacia, con MesCorte en letras. Validar cardinalidad victima/delito y equivalencia JSON/Excel.
+
+Solo se modifica este repositorio, sin ramas adicionales y con un commit por entrega. Los repositorios SIIID son referencia de lectura. Los scripts SQL se entregan por el chat para que el propietario los ejecute y guarde en el repositorio de BD.
