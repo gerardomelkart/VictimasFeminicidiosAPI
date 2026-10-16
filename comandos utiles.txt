@@ -1,0 +1,3 @@
+scp .\publish-feminicidios.zip siiid:~
+ssh siiid
+sudo bash ./install-api-feminicidios.sh
