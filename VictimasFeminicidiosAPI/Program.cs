@@ -40,6 +40,7 @@ builder.Services.AddSingleton(jwt);
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddScoped<ICuentaRepository, CuentaRepository>();
+builder.Services.AddScoped<IBitacoraRepository, BitacoraRepository>();
 builder.Services.AddScoped<IFeminicidiosRepository, FeminicidiosRepository>();
 builder.Services.AddScoped<FeminicidiosService>();
 builder.Services.AddSingleton<FeminicidiosExcel>();
@@ -90,6 +91,7 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 app.UseForwardedHeaders();
 app.UseMiddleware<RequestLoggingMiddleware>();
+app.UseMiddleware<BitacoraMiddleware>();
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment()) app.UseHsts();
 app.UseHttpsRedirection();

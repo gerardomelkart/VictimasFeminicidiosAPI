@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using VictimasFeminicidiosAPI.Data;
+using VictimasFeminicidiosAPI.Middleware;
+using VictimasFeminicidiosAPI.Models;
 
 namespace VictimasFeminicidiosAPI.Services;
 
@@ -20,6 +22,11 @@ public sealed class CuentaTokenEvents(ICuentaRepository repository) : JwtBearerE
         if (cuenta is null || !cuenta.PuedeAcceder
             || cuenta.Rol != principal?.FindFirst("role")?.Value
             || TokenService.Huella(cuenta) != principal?.FindFirst("credencial")?.Value)
+        {
             context.Fail("Cuenta sin acceso.");
+            return;
+        }
+        context.HttpContext.Items[BitacoraMiddleware.IdentidadKey] =
+            new BitacoraIdentidad(cuenta.Origen, cuenta.Id, cuenta.Usuario);
     }
 }

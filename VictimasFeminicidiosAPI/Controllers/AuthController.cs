@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using VictimasFeminicidiosAPI.Data;
+using VictimasFeminicidiosAPI.Middleware;
 using VictimasFeminicidiosAPI.Models;
 using VictimasFeminicidiosAPI.Services;
 
@@ -17,6 +18,8 @@ public sealed class AuthController(ICuentaRepository repository, PasswordService
     [HttpPost("token")]
     public async Task<ActionResult<LoginResponse>> Login(LoginRequest request, CancellationToken ct)
     {
+        HttpContext.Items[BitacoraMiddleware.IdentidadKey] =
+            new BitacoraIdentidad(request.Origen, null, request.Usuario.Trim());
         var cuenta = await repository.BuscarAsync(request.Origen, request.Usuario.Trim(), ct);
         var valida = passwords.Verificar(request.Password, cuenta?.PasswordHash);
         if (!valida || cuenta is null || !cuenta.PuedeAcceder)
@@ -24,6 +27,8 @@ public sealed class AuthController(ICuentaRepository repository, PasswordService
             logger.LogWarning("Autenticación rechazada en API de feminicidios.");
             return Unauthorized(new { mensaje = "Usuario o contraseña incorrectos, o cuenta sin acceso." });
         }
+        HttpContext.Items[BitacoraMiddleware.IdentidadKey] =
+            new BitacoraIdentidad(cuenta.Origen, cuenta.Id, cuenta.Usuario);
         logger.LogInformation("Autenticación correcta. Origen {Origen}, Id {Id}.", cuenta.Origen, cuenta.Id);
         return Ok(tokens.Crear(cuenta));
     }

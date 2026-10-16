@@ -199,6 +199,40 @@ Check((await Get("/apiFeminicidios/auth/me?password=NO_GUARDAR_QUERY", admin)).I
 factory.Repository.FallarListado = true;
 Check((await Get("/apiFeminicidios/usuarios", admin)).StatusCode == HttpStatusCode.InternalServerError, "No maneja error del repositorio");
 factory.Repository.FallarListado = false;
+// Bitácora SQL simulada: cubre éxito, rechazos, errores y ausencia de datos sensibles.
+var eventos = factory.Bitacora.Eventos;
+Check(eventos.Count(e => e.Evento == "LOGIN" && e.EstadoHttp == 200) == 2, "Faltan accesos correctos");
+Check(eventos.Any(e => e.Evento == "LOGIN" && e.EstadoHttp == 401 && e.Usuario == "dif"), "Falta acceso rechazado");
+Check(eventos.Any(e => e.Evento == "LOGIN" && e.EstadoHttp == 429 && e.Usuario is null), "Falta login limitado");
+Check(eventos.Any(e => e.Evento == "CONSULTA" && e.EstadoHttp == 401 && e.IdUsuario is null), "Falta consulta sin token");
+Check(eventos.Any(e => e.Evento == "CONSULTA" && e.EstadoHttp == 400), "Falta consulta inválida");
+Check(eventos.Any(e => e.Evento == "CONSULTA" && e.EstadoHttp == 500), "Falta consulta fallida");
+foreach (var formato in new[] { "json", "xlsx" })
+{
+    Check(eventos.Any(e => e.Evento == "CONSULTA" && e.EstadoHttp == 200 && e.Anio == 2026
+        && e.Mes == 9 && e.Formato == formato && e.TotalRegistros == 1 && e.IdUsuario is not null), "Consulta sin detalle: " + formato);
+    Check(eventos.Any(e => e.Evento == "CONSULTA" && e.EstadoHttp == 200 && e.Mes == 8
+        && e.Formato == formato && e.TotalRegistros == 0), "Consulta vacía sin bitácora: " + formato);
+}
+Check(eventos.All(e => e.FechaUtc.Kind == DateTimeKind.Utc && e.DuracionMs >= 0 && !string.IsNullOrEmpty(e.TraceId)), "Metadatos incompletos");
+var auditoriaJson = JsonSerializer.Serialize(eventos);
+Check(!auditoriaJson.Contains(FakeRepository.Password) && !auditoriaJson.Contains(external)
+    && !auditoriaJson.Contains("=1+1") && !auditoriaJson.Contains("01000"), "Bitácora contiene secretos/datos");
+factory.Bitacora.Fallar = true;
+var sinBitacora = await Get("/apiFeminicidios/consulta?anio=2026&mes=9", admin);
+Check(sinBitacora.StatusCode == HttpStatusCode.ServiceUnavailable
+    && !(await sinBitacora.Content.ReadAsStringAsync()).Contains("IdentificadorVictima")
+    && !sinBitacora.Headers.Contains("X-Total-Registros"), "Entrega datos sin bitácora");
+factory.Bitacora.Fallar = false;
+await using (var auditFailure = new ApiFactory())
+{
+    auditFailure.Bitacora.Fallar = true;
+    using var auditClient = auditFailure.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+    var loginNoAudit = await auditClient.PostAsJsonAsync("/apiFeminicidios/auth/token",
+        new { origen = "EXTERNO", usuario = "dif", password = FakeRepository.Password });
+    Check(loginNoAudit.StatusCode == HttpStatusCode.ServiceUnavailable
+        && !(await loginNoAudit.Content.ReadAsStringAsync()).Contains("accessToken"), "Emite token sin bitácora");
+}
 await factory.DisposeAsync(); // Cierra y vacía el archivo antes de inspeccionarlo.
 var logFiles = Directory.GetFiles(logsDirectory, "api-feminicidios-*.log");
 Check(logFiles.Length == 1, "No genera un archivo diario");
@@ -224,12 +258,15 @@ Console.WriteLine($"OK: {checks} verificaciones de autenticación, rutas y logs.
 sealed class ApiFactory : WebApplicationFactory<TokenService>
 {
     public FakeRepository Repository { get; } = new();
+    public FakeBitacoraRepository Bitacora { get; } = new();
     public FakeFeminicidiosRepository Feminicidios { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
         builder.ConfigureTestServices(services =>
         {
+            services.RemoveAll<IBitacoraRepository>();
+            services.AddSingleton<IBitacoraRepository>(Bitacora);
             services.RemoveAll<ICuentaRepository>();
             services.AddSingleton<ICuentaRepository>(Repository);
             services.RemoveAll<IFeminicidiosRepository>();
@@ -291,5 +328,17 @@ sealed class FakeFeminicidiosRepository : IFeminicidiosRepository
             FechaRegistro = new DateTime(2026, 9, 2, 12, 0, 0)
         };
         return Task.FromResult<IReadOnlyList<FeminicidioRegistro>>(Duplicar ? [row, row] : [row]);
+    }
+}
+
+sealed class FakeBitacoraRepository : IBitacoraRepository
+{
+    public List<BitacoraEvento> Eventos { get; } = [];
+    public bool Fallar { get; set; }
+    public Task RegistrarAsync(BitacoraEvento evento, CancellationToken ct)
+    {
+        if (Fallar) throw new InvalidOperationException("Fallo simulado de bitácora.");
+        Eventos.Add(evento);
+        return Task.CompletedTask;
     }
 }
