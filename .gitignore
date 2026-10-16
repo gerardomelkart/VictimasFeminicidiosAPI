@@ -1,0 +1,30 @@
+# Visual Studio y editores
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+# Compilacion, pruebas y publicaciones
+**/bin/
+**/obj/
+**/TestResults/
+**/publish/
+*.zip
+# Configuracion privada y certificados
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+**/secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+*.pubxml
+# Datos y registros
+**/logs/
+*.log
+*.xlsx
+*.csv
+*.bak
