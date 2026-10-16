@@ -10,8 +10,8 @@ public sealed class JwtSettings
     public byte[] GetSigningKey()
     {
         if (string.IsNullOrWhiteSpace(Issuer) || string.IsNullOrWhiteSpace(Audience)
-            || MinutesToExpire is < 1 or > 30)
-            throw new InvalidOperationException("Configure Jwt:Issuer, Audience y MinutesToExpire (1 a 30).");
+            || MinutesToExpire is < 1 or > 60)
+            throw new InvalidOperationException("Configure Jwt:Issuer, Audience y MinutesToExpire (1 a 60).");
         byte[] key;
         try { key = Convert.FromBase64String(SecretKey); }
         catch (FormatException)

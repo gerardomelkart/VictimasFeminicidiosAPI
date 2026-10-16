@@ -1,3 +1,4 @@
+using ClosedXML.Excel;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
@@ -21,7 +22,7 @@ Environment.SetEnvironmentVariable("Logs__Directory", logsDirectory);
 var secret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
 Environment.SetEnvironmentVariable("Jwt__SecretKey", secret);
 Environment.SetEnvironmentVariable("ConnectionStrings__SiiidDb", "Server=unused;Database=unused");
-var settings = new JwtSettings { Issuer = "VictimasFeminicidiosAPI", Audience = "VictimasFeminicidiosAPI.Clients", SecretKey = secret, MinutesToExpire = 15 };
+var settings = new JwtSettings { Issuer = "VictimasFeminicidiosAPI", Audience = "VictimasFeminicidiosAPI.Clients", SecretKey = secret, MinutesToExpire = 60 };
 var checks = 0;
 void Check(bool condition, string message)
 {
@@ -34,9 +35,10 @@ void BadConfig(JwtSettings config)
     catch (InvalidOperationException) { checks++; }
 }
 BadConfig(new JwtSettings());
-BadConfig(new JwtSettings { Issuer = "i", Audience = "a", MinutesToExpire = 15, SecretKey = Convert.ToBase64String(new byte[32]) });
+BadConfig(new JwtSettings { Issuer = "i", Audience = "a", MinutesToExpire = 60, SecretKey = Convert.ToBase64String(new byte[32]) });
 Check(!PasswordService.EsNuevaPasswordValida(new string('ñ', 37)), "BCrypt no debe truncar UTF-8");
 Check(!PasswordService.EsNuevaPasswordValida("corta"), "Contraseña demasiado corta");
+BadConfig(new JwtSettings { Issuer = "i", Audience = "a", MinutesToExpire = 61, SecretKey = secret });
 
 await using var factory = new ApiFactory();
 using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
@@ -46,7 +48,7 @@ async Task<string> Token(HttpResponseMessage response)
 {
     Check(response.IsSuccessStatusCode, "Login válido rechazado");
     using var data = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-    Check(data.RootElement.GetProperty("expiresIn").GetInt32() == 900, "Vencimiento inesperado");
+    Check(data.RootElement.GetProperty("expiresIn").GetInt32() == 3600, "Vencimiento inesperado");
     return data.RootElement.GetProperty("accessToken").GetString()!;
 }
 async Task<HttpResponseMessage> Get(string path, string? token = null)
@@ -59,6 +61,8 @@ Check((await Get("/apiFeminicidios/auth/me")).StatusCode == HttpStatusCode.Unaut
 Check((await Get("/apiFeminicidios/openapi/v1.json")).IsSuccessStatusCode, "Falla OpenAPI con prefijo");
 var admin = await Token(await Login("SIIID", "admin", FakeRepository.Password));
 var external = await Token(await Login("EXTERNO", "dif", FakeRepository.Password));
+var issued = new JwtSecurityTokenHandler().ReadJwtToken(external);
+Check(Math.Abs((issued.ValidTo - issued.ValidFrom).TotalSeconds - 3600) < 1, "JWT no dura una hora");
 Check((await Get("/apiFeminicidios/auth/me", admin)).IsSuccessStatusCode, "Superusuario rechazado");
 Check((await Get("/apiFeminicidios/auth/me", external)).IsSuccessStatusCode, "DIF rechazado");
 Check((await Get("/apiFeminicidios/usuarios", external)).StatusCode == HttpStatusCode.Forbidden, "DIF puede administrar usuarios");
@@ -107,6 +111,48 @@ using (var request = new HttpRequestMessage(HttpMethod.Post, "/apiFeminicidios/u
     Check((await client.SendAsync(request)).StatusCode == HttpStatusCode.BadRequest, "Acepta password BCrypt truncada");
 }
 
+// Contrato de consulta: repositorio simulado; nunca conecta a una base real.
+Check((await Get("/apiFeminicidios/consulta?anio=2026&mes=9")).StatusCode == HttpStatusCode.Unauthorized, "Consulta pública");
+var jsonResponse = await Get("/apiFeminicidios/consulta?anio=2026&mes=9", external);
+Check(jsonResponse.IsSuccessStatusCode, "DIF no puede consultar");
+Check(factory.Feminicidios.UltimoPeriodo == (2026, 9), "No envía el periodo al repositorio");
+using var jsonDoc = JsonDocument.Parse(await jsonResponse.Content.ReadAsStringAsync());
+var expectedHeaders = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "ColumnasReferencia.json")))!;
+var jsonRow = jsonDoc.RootElement[0];
+Check(jsonRow.EnumerateObject().Select(x => x.Name).SequenceEqual(expectedHeaders), "JSON no coincide con las 48 columnas del ejemplo");
+Check(!jsonRow.TryGetProperty("IdRegistro", out _), "Expone ID interno de la consulta");
+Check(jsonRow.GetProperty("MesCorte").GetString() == "SEPTIEMBRE", "Mes no está en letras");
+Check(jsonRow.GetProperty("CURP").ValueKind == JsonValueKind.Null, "NULL se convirtió en texto");
+Check(jsonResponse.Headers.GetValues("X-Total-Registros").Single() == "1", "Conteo JSON incorrecto");
+var xlsxResponse = await Get("/apiFeminicidios/consulta?anio=2026&mes=9&formato=xlsx", admin);
+Check(xlsxResponse.IsSuccessStatusCode, "Superusuario no puede descargar Excel");
+Check(xlsxResponse.Content.Headers.ContentType?.MediaType == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "MIME Excel incorrecto");
+Check((xlsxResponse.Content.Headers.ContentDisposition?.FileNameStar ?? "").Contains("2026_09"), "Nombre Excel incorrecto");
+using (var stream = new MemoryStream(await xlsxResponse.Content.ReadAsByteArrayAsync()))
+using (var book = new XLWorkbook(stream))
+{
+    var sheet = book.Worksheet(1);
+    Check(sheet.LastColumnUsed()!.ColumnNumber() == 48, "Excel incluye una columna extra");
+    Check(expectedHeaders.SequenceEqual(Enumerable.Range(1, 48).Select(c => sheet.Cell(1, c).GetString())), "Encabezados Excel distintos");
+    Check(sheet.LastRowUsed()!.RowNumber() == 2, "Excel duplica/omite datos");
+    Check(sheet.Cell(2, 2).GetString() == "=1+1" && !sheet.Cell(2, 2).HasFormula, "Excel ejecuta texto como fórmula");
+    Check(sheet.Cell(2, 44).DataType == XLDataType.Text && sheet.Cell(2, 44).GetString() == "01000", "CP pierde cero inicial");
+    Check(sheet.Cell(2, 13).GetValue<int>() == jsonRow.GetProperty("Edad").GetInt32(), "Edad Excel/JSON distinta");
+    Check(sheet.Cell(2, 21).GetDateTime().ToString("yyyy-MM-dd") == jsonRow.GetProperty("FechaInicioCarpeta").GetString(), "Fecha Excel/JSON distinta");
+    Check(sheet.Cell(2, 22).GetTimeSpan().ToString() == jsonRow.GetProperty("HoraInicioCarpeta").GetString(), "Hora Excel/JSON distinta");
+    Check(sheet.Cell(2, 5).IsEmpty(), "NULL no quedó vacío en Excel");
+}
+foreach (var query in new[] { "anio=2026&mes=0", "anio=2026&mes=13", "mes=9", "anio=2026", "anio=2026&mes=9&formato=csv", "anio=texto&mes=9" })
+    Check((await Get("/apiFeminicidios/consulta?" + query, external)).StatusCode == HttpStatusCode.BadRequest, "Acepta parámetros inválidos: " + query);
+var empty = await Get("/apiFeminicidios/consulta?anio=2026&mes=8", external);
+Check((await empty.Content.ReadAsStringAsync()) == "[]", "Periodo vacío no devuelve []");
+var emptyExcel = await Get("/apiFeminicidios/consulta?anio=2026&mes=8&formato=xlsx", external);
+using (var book = new XLWorkbook(new MemoryStream(await emptyExcel.Content.ReadAsByteArrayAsync())))
+    Check(book.Worksheet(1).LastRowUsed()!.RowNumber() == 1 && book.Worksheet(1).LastColumnUsed()!.ColumnNumber() == 48, "Excel vacío pierde encabezados");
+factory.Feminicidios.Duplicar = true;
+Check((await Get("/apiFeminicidios/consulta?anio=2026&mes=9", external)).StatusCode == HttpStatusCode.InternalServerError, "Publica filas ambiguas duplicadas");
+factory.Feminicidios.Duplicar = false;
+
 // Cambiar habilitación y versión revoca el token, incluso al reactivar después.
 using (var request = new HttpRequestMessage(HttpMethod.Patch, "/apiFeminicidios/usuarios/2/habilitado"))
 {
@@ -137,7 +183,8 @@ Check(logText.Contains("HTTP GET apiFeminicidios/usuarios -> 500"), "Error pierd
 Check(logText.Contains("TraceId") && logText.Contains("Autenticación correcta")
     && logText.Contains("Autenticación rechazada") && logText.Contains("Usuario externo"), "Falta auditoría");
 Check(!logText.Contains(FakeRepository.Password) && !logText.Contains(admin)
-    && !logText.Contains(external) && !logText.Contains("NO_GUARDAR_QUERY"), "El log contiene secretos");
+    && !logText.Contains(external) && !logText.Contains("NO_GUARDAR_QUERY")
+    && !logText.Contains("=1+1") && !logText.Contains("01000"), "El log contiene secretos");
 await using (var restart = new ApiFactory())
 {
     using var restartedClient = restart.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
@@ -151,6 +198,7 @@ Console.WriteLine($"OK: {checks} verificaciones de autenticación, rutas y logs.
 sealed class ApiFactory : WebApplicationFactory<TokenService>
 {
     public FakeRepository Repository { get; } = new();
+    public FakeFeminicidiosRepository Feminicidios { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -158,6 +206,8 @@ sealed class ApiFactory : WebApplicationFactory<TokenService>
         {
             services.RemoveAll<ICuentaRepository>();
             services.AddSingleton<ICuentaRepository>(Repository);
+            services.RemoveAll<IFeminicidiosRepository>();
+            services.AddSingleton<IFeminicidiosRepository>(Feminicidios);
         });
     }
 }
@@ -194,5 +244,26 @@ sealed class FakeRepository : ICuentaRepository
     public Task<bool> CambiarPasswordAsync(int id, string hash, CancellationToken ct)
     {
         _externalHash = hash; _version++; return Task.FromResult(true);
+    }
+}
+
+sealed class FakeFeminicidiosRepository : IFeminicidiosRepository
+{
+    public bool Duplicar { get; set; }
+    public (int Anio, int Mes) UltimoPeriodo { get; private set; }
+    public Task<IReadOnlyList<FeminicidioRegistro>> ConsultarAsync(int anio, int mes, CancellationToken ct)
+    {
+        UltimoPeriodo = (anio, mes);
+        if (mes == 8) return Task.FromResult<IReadOnlyList<FeminicidioRegistro>>([]);
+        var row = new FeminicidioRegistro
+        {
+            IdRegistro = 1, IdentificadorVictima = "0001", Nombre = "=1+1", CURP = null,
+            Edad = 30, AnioCorte = 2026, MesCorte = "SEPTIEMBRE", IdentificadorCarpeta = "00001",
+            FechaInicioCarpeta = "2026-09-01", HoraInicioCarpeta = "16:40:50",
+            FechaHechos = "2026-09-01", HoraHechos = "00:00:00", CodigoPostal = "01000",
+            GradoConsumacion = "Consumado", SubtipoDelito = "Feminicidio",
+            FechaRegistro = new DateTime(2026, 9, 2, 12, 0, 0)
+        };
+        return Task.FromResult<IReadOnlyList<FeminicidioRegistro>>(Duplicar ? [row, row] : [row]);
     }
 }

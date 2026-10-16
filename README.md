@@ -4,7 +4,7 @@ API independiente de SIIID, basada en .NET 10. Primero se prueba en desarrollo; 
 
 ## Estado de esta entrega
 
-Autenticacion JWT implementada, con acceso del DIF mediante cuentas externas y de superusuarios SIIID mediante sus cuentas actuales. Administracion de cuentas externas disponible solo para superusuarios. Todavia no incluye consultas de feminicidios ni exportaciones.
+Autenticacion JWT implementada, con acceso del DIF mediante cuentas externas y de superusuarios SIIID mediante sus cuentas actuales. Administracion de cuentas externas disponible solo para superusuarios. Consulta mensual y descarga JSON/Excel implementadas.
 
 Antes de iniciar, ejecutar en desarrollo el SQL entregado por el chat para `dbo.api_feminicidios_usuario`. La API no crea ni migra tablas automaticamente. Los repositorios originales SIIID y BD no se modifican.
 
@@ -36,7 +36,7 @@ dotnet run --project VictimasFeminicidiosAPI --launch-profile https
 
 La API rechaza el arranque si falta la conexion o si la clave no es Base64 de al menos 64 bytes. Usar otra clave aleatoria para produccion. No reutilizar claves de SIIID ni versionarlas. Mantener esta clave estable entre ejecuciones; cambiarla invalida todos los tokens.
 
-URL local: `https://localhost:7040`. OpenAPI JSON solamente en desarrollo: `/openapiFeminicidios.json`. Si hace falta, confiar en el certificado de desarrollo con `dotnet dev-certs https --trust`. No hay pantalla de login ni Swagger UI.
+URL local: `https://localhost:7040`. OpenAPI JSON solamente en desarrollo: `/apiFeminicidios/openapi/v1.json`. Si hace falta, confiar en el certificado de desarrollo con `dotnet dev-certs https --trust`. No hay pantalla de login ni Swagger UI.
 
 ## Probar el acceso y crear la cuenta DIF
 
@@ -49,7 +49,7 @@ URL local: `https://localhost:7040`. OpenAPI JSON solamente en desarrollo: `/ope
 
 No existe registro publico. El origen es explicito para evitar confusiones entre nombres coincidentes. No se aceptan tokens emitidos por la API SIIID.
 
-JWT: HS512, emisor y audiencia propios, 15 minutos y tolerancia de reloj de 30 segundos. Cada peticion comprueba en BD el estado de la cuenta, rol, cambio obligatorio y huella de credencial. Cambiar password o deshabilitar invalida el acceso. La version ROWVERSION externa tambien impide revivir un token al reactivar la cuenta.
+JWT: HS512, emisor y audiencia propios, 60 minutos y tolerancia de reloj de 30 segundos. Cada peticion comprueba en BD el estado de la cuenta, rol, cambio obligatorio y huella de credencial. Cambiar password o deshabilitar invalida el acceso. La version ROWVERSION externa tambien impide revivir un token al reactivar la cuenta.
 
 Limites iniciales por proceso: 60 solicitudes/minuto globales y 5 intentos/minuto por IP al login (HTTP 429 al exceder). No se confia en cabeceras de proxy aportadas por clientes. Al publicar, configurar el proxy Apache de confianza para HTTPS/IP real y revisar limites. Respuestas sin cache y errores genericos. Logs de acceso/administracion por ID, sin contrasenas, tokens ni datos nominales.
 
@@ -74,14 +74,29 @@ No copiar las credenciales de la API SIIID al repositorio. Usar `Encrypt=True` y
 
 Ruta prevista: `https://cni03.sspc.gob.mx/apiFeminicidios/`. Servicio y puerto local propios; comprobar disponibilidad al publicar. Todavia no se configura Apache ni systemd.
 
-## Pendiente: consulta y descargas
+## Consulta mensual y descargas
 
-La revision de `InformeRepository.SabanasVictimasEstatales.cs` en SIIID confirma el uso de registros activos unidos con `carga` activa y estos estados:
+Con el token del DIF o de un superusuario:
+
+```http
+GET https://localhost:7040/apiFeminicidios/consulta?anio=2026&mes=9&formato=json
+Authorization: Bearer TOKEN
+```
+
+Cambiar `formato=xlsx` descarga `feminicidios_2026_09.xlsx`. Si se omite formato se usa JSON. Anio (2000 a 2100) y mes (1 a 12) son obligatorios. Parametros invalidos producen HTTP 400. Ambos formatos llevan `X-Total-Registros` con el conteo. Sin registros, JSON devuelve `[]` y Excel conserva sus 48 encabezados.
+
+Los nombres, orden y significado de las columnas siguen el ejemplo de septiembre. No se incluye ReferenciaCarga ni la columna vacia. MesCorte se devuelve en mayusculas en espanol, las fechas de nacimiento/inicio/hechos como `yyyy-MM-dd` en JSON y fechas numericas en Excel. Horas `HH:mm:ss`, identificadores/CURP/CP como texto, nulos JSON como `null` y celdas Excel vacias. FechaRegistro conserva la fecha de registro de la carpeta, como la consulta nominal anterior. Excel guarda textos como valores literales, sin formulas.
+
+El SQL esta en `Data/FeminicidiosSql.cs` y consulta directamente tablas, sin crear vistas, procedimientos ni otros objetos. Usa el mes/anio de corte de la carga de la carpeta (no la fecha de hechos) y verifica carpeta/delito/victima activos y las tres cargas activas con estos pares:
 
 - `tipo_carga = 'CARGA_INICIAL'` con `estado = 'CONFIRMADO'`.
 - `tipo_carga = 'ACTUALIZACION'` con `estado = 'CONFIRMADO_ACTUALIZACION'`.
 
-La consulta de la siguiente entrega debe usar anio/mes de corte y feminicidios consumados, sin previos, mixtos ni Federal. Respetara las 48 columnas con encabezado del Excel de referencia, sin ReferenciaCarga ni columna vacia, con MesCorte en letras. Validar cardinalidad victima/delito y equivalencia JSON/Excel.
+Filtra `subtipo_delito = 'Feminicidio'` y `grado_consumacion.descripcion = 'Consumado'`, como el query previo. Excluye tentativas, previos, pendientes, rechazados y Federal; conserva la exclusion del usuario federal de las vistas nominales existentes. Las relaciones de sabana con textos identicos se unifican antes del join. Si quedan clasificaciones ambiguas que dupliquen un registro de victima, la API registra un error y no exporta un resultado duplicado.
+
+La consulta y conteo quedan en el log, sin datos nominales. Las pruebas automaticas comprueban contrato de 48 columnas contra encabezados extraidos del ejemplo, JSON/Excel, parametros, celdas tipadas, textos que parecen formulas y duplicados. La ejecucion del SQL y la conciliacion de septiembre contra los datos reales se deben probar en la base local del propietario.
+
+Los nuevos tokens duran una hora (`expiresIn=3600`). Los ya emitidos mantienen su vencimiento original: solicitar otro token despues de reiniciar la API. No hace falta cambiar la clave JWT ni la tabla.
 
 Solo se modifica este repositorio, sin ramas adicionales y con un commit por entrega. Los repositorios SIIID son referencia de lectura. Los scripts SQL se entregan por el chat para que el propietario los ejecute y guarde en el repositorio de BD.
 

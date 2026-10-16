@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <None Update="ColumnasReferencia.json" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
     <ProjectReference Include="../VictimasFeminicidiosAPI/VictimasFeminicidiosAPI.csproj" />
   </ItemGroup>
