@@ -79,3 +79,7 @@ No repetir la configuracion de secretos/proxy salvo que haya cambios. El instala
 ## Proxy de confianza
 
 Apache exige TLS en esta ruta, preserva `/apiFeminicidios/` y el Host, reemplaza X-Forwarded-For/Proto de esta ruta y envia la IP de la conexion observada y HTTPS. La API acepta un salto unicamente desde 127.0.0.1/::1; no confia en cabeceras de proxys externos. Esto permite redireccion HTTPS y limite de login por IP sin confiar en valores aportados por el consumidor. Si hay un balanceador adicional, revisar su cadena de confianza antes de utilizar su IP declarada.
+
+## Defines de LAMPP y saltos de linea
+
+El servidor arranca Apache con `-DSSL -DPHP`. El script de proxy usa ambos defines en todas sus comprobaciones, recarga y recuperacion, para conservar el mismo conjunto de includes activos. `.gitattributes` fija LF en scripts, unidades y configuraciones incluso al clonar en Windows. Si ya se copiaron archivos CRLF, ejecutar `sed -i 's/\r$//' configurar-proxy-api-feminicidios.sh` en el servidor antes de volver a ejecutarlo. Esta correccion solo requiere subir nuevamente ese script; no recompilar ni reinstalar la API.
