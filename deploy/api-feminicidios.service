@@ -1,0 +1,25 @@
+[Unit]
+Description=API de consulta de victimas de feminicidio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opc
+Group=opc
+WorkingDirectory=/var/www/api-feminicidios
+ExecStart=/var/www/api-feminicidios/VictimasFeminicidiosAPI
+EnvironmentFile=/etc/api-feminicidios.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/api-feminicidios
+SyslogIdentifier=api-feminicidios
+
+[Install]
+WantedBy=multi-user.target

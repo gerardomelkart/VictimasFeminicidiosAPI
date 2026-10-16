@@ -10,6 +10,7 @@ using VictimasFeminicidiosAPI.Data;
 using VictimasFeminicidiosAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(ProxyConfiguration.Configurar);
 // Ruta relativa al proyecto, independiente del directorio desde el que se inicie.
 var logsDirectory = builder.Configuration["Logs:Directory"] ?? "logs";
 logsDirectory = Path.GetFullPath(logsDirectory, builder.Environment.ContentRootPath);
@@ -87,6 +88,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment()) app.UseHsts();

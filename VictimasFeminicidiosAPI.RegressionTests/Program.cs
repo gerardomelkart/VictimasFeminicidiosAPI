@@ -1,6 +1,11 @@
 using ClosedXML.Excel;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -39,6 +44,27 @@ BadConfig(new JwtSettings { Issuer = "i", Audience = "a", MinutesToExpire = 60, 
 Check(!PasswordService.EsNuevaPasswordValida(new string('ñ', 37)), "BCrypt no debe truncar UTF-8");
 Check(!PasswordService.EsNuevaPasswordValida("corta"), "Contraseña demasiado corta");
 BadConfig(new JwtSettings { Issuer = "i", Audience = "a", MinutesToExpire = 61, SecretKey = secret });
+
+// El proxy local puede reenviar esquema/IP; un emisor externo no.
+async Task<DefaultHttpContext> Forward(string peer, string? clientIp)
+{
+    var options = new ForwardedHeadersOptions();
+    ProxyConfiguration.Configurar(options);
+    var context = new DefaultHttpContext();
+    context.Connection.RemoteIpAddress = IPAddress.Parse(peer);
+    context.Request.Scheme = "http";
+    context.Request.Headers["X-Forwarded-Proto"] = "https";
+    if (clientIp is not null) context.Request.Headers["X-Forwarded-For"] = clientIp;
+    var middleware = new ForwardedHeadersMiddleware(_ => Task.CompletedTask, NullLoggerFactory.Instance, Options.Create(options));
+    await middleware.Invoke(context);
+    return context;
+}
+var trusted = await Forward("127.0.0.1", "203.0.113.10");
+Check(trusted.Request.Scheme == "https" && trusted.Connection.RemoteIpAddress!.ToString() == "203.0.113.10", "No procesa proxy local");
+var untrusted = await Forward("203.0.113.20", "203.0.113.10");
+Check(untrusted.Request.Scheme == "http" && untrusted.Connection.RemoteIpAddress!.ToString() == "203.0.113.20", "Confía en proxy externo");
+var asymmetric = await Forward("127.0.0.1", null);
+Check(asymmetric.Request.Scheme == "http", "Procesa cabeceras incompletas");
 
 await using var factory = new ApiFactory();
 using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });

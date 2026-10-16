@@ -51,7 +51,7 @@ No existe registro publico. El origen es explicito para evitar confusiones entre
 
 JWT: HS512, emisor y audiencia propios, 60 minutos y tolerancia de reloj de 30 segundos. Cada peticion comprueba en BD el estado de la cuenta, rol, cambio obligatorio y huella de credencial. Cambiar password o deshabilitar invalida el acceso. La version ROWVERSION externa tambien impide revivir un token al reactivar la cuenta.
 
-Limites iniciales por proceso: 60 solicitudes/minuto globales y 5 intentos/minuto por IP al login (HTTP 429 al exceder). No se confia en cabeceras de proxy aportadas por clientes. Al publicar, configurar el proxy Apache de confianza para HTTPS/IP real y revisar limites. Respuestas sin cache y errores genericos. Logs de acceso/administracion por ID, sin contrasenas, tokens ni datos nominales.
+Limites iniciales por proceso: 60 solicitudes/minuto globales y 5 intentos/minuto por IP al login (HTTP 429 al exceder). Solo se procesan cabeceras reenviadas desde el proxy local de confianza (127.0.0.1/::1, un salto). Apache las reemplaza en la ruta de esta API; ver deploy/README.md. Respuestas sin cache y errores genericos. Logs de acceso/administracion por ID, sin contrasenas, tokens ni datos nominales.
 
 ## Verificacion automatica
 
@@ -72,7 +72,7 @@ Servidor y base SIIID existentes. Configurar mediante archivo de entorno privado
 
 No copiar las credenciales de la API SIIID al repositorio. Usar `Encrypt=True` y validar el certificado SQL en produccion; revisar la confianza del certificado del servidor antes del despliegue. La configuracion actual de SIIID usa `TrustServerCertificate=True`, lo cual se debe revisar para este servicio.
 
-Ruta prevista: `https://cni03.sspc.gob.mx/apiFeminicidios/`. Servicio y puerto local propios; comprobar disponibilidad al publicar. Todavia no se configura Apache ni systemd.
+Ruta prevista: `https://cni03.sspc.gob.mx/apiFeminicidios/`. Servicio y puerto local propios; comprobar disponibilidad al publicar. Plantillas e instaladores en [deploy/README.md](deploy/README.md).
 
 ## Consulta mensual y descargas
 
@@ -107,3 +107,7 @@ Serilog escribe en consola y en `logs/api-feminicidios-YYYYMMDD.log`, relativo a
 Se registran inicio, acceso correcto/rechazado, administracion de usuarios, errores y una linea por peticion con metodo, plantilla de ruta, estado HTTP, duracion, ID/origen del usuario autenticado y TraceId. Se incluyen 401, 403, 429 y errores 500. No se registran cuerpos, Authorization, tokens, contrasenas ni query strings. Microsoft/System se limitan a Warning para evitar logs rutinarios de URLs completas.
 
 Para cambiar la carpeta usar `Logs:Directory` en User Secrets (desarrollo) o `Logs__Directory` en el entorno del servicio (produccion). La cuenta del proceso necesita escritura. En produccion se usara una carpeta persistente fuera del directorio reemplazado por la publicacion. El despliegue Apache posterior debe conservar el prefijo `/apiFeminicidios/` al reenviar las peticiones.
+
+## Publicacion
+
+Seguir [deploy/README.md](deploy/README.md) para publicar linux-x64 desde Visual Studio, subir el ZIP por scp e instalar en el puerto 5003. Los scripts separan secretos, logs y binarios, y no ejecutan cambios en BD.
