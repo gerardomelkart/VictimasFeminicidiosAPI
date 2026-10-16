@@ -8,7 +8,7 @@ using VictimasFeminicidiosAPI.Services;
 namespace VictimasFeminicidiosAPI.Controllers;
 
 [ApiController]
-[Route("api/v1/auth")]
+[Route("apiFeminicidios/auth")]
 public sealed class AuthController(ICuentaRepository repository, PasswordService passwords,
     TokenService tokens, ILogger<AuthController> logger) : ControllerBase
 {

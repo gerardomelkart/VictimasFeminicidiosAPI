@@ -8,7 +8,7 @@ namespace VictimasFeminicidiosAPI.Controllers;
 
 [ApiController]
 [Authorize(Policy = "AdministrarUsuarios")]
-[Route("api/v1/usuarios")]
+[Route("apiFeminicidios/usuarios")]
 public sealed class UsuariosController(ICuentaRepository repository, ILogger<UsuariosController> logger) : ControllerBase
 {
     [HttpGet]

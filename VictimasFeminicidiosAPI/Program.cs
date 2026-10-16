@@ -1,4 +1,7 @@
 using System.Threading.RateLimiting;
+using Serilog;
+using Serilog.Events;
+using VictimasFeminicidiosAPI.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
@@ -7,6 +10,25 @@ using VictimasFeminicidiosAPI.Data;
 using VictimasFeminicidiosAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+// Ruta relativa al proyecto, independiente del directorio desde el que se inicie.
+var logsDirectory = builder.Configuration["Logs:Directory"] ?? "logs";
+logsDirectory = Path.GetFullPath(logsDirectory, builder.Environment.ContentRootPath);
+Directory.CreateDirectory(logsDirectory);
+builder.Services.AddSerilog((services, configuration) => configuration
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .MinimumLevel.Override("System", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("Aplicacion", "VictimasFeminicidiosAPI")
+    .Enrich.WithProperty("Ambiente", builder.Environment.EnvironmentName)
+    .WriteTo.Console()
+    .WriteTo.File(Path.Combine(logsDirectory, "api-feminicidios-.log"),
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: null,
+        fileSizeLimitBytes: null,
+        buffered: false,
+        shared: true,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"));
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 16 * 1024);
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtSettings>() ?? new JwtSettings();
 var key = jwt.GetSigningKey(); // Sin claves de respaldo ni secretos versionados.
@@ -62,6 +84,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment()) app.UseHsts();
 app.UseHttpsRedirection();
@@ -72,11 +95,19 @@ app.Use(async (context, next) =>
     await next();
 });
 app.UseRouting();
+app.Use((context, next) =>
+{
+    // Conservar la plantilla aunque el manejador de errores limpie el endpoint.
+    context.Items[RequestLoggingMiddleware.RouteKey] =
+        (context.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText;
+    return next(context);
+});
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-if (app.Environment.IsDevelopment()) app.MapOpenApi().AllowAnonymous();
+if (app.Environment.IsDevelopment()) app.MapOpenApi("/apiFeminicidios/openapi/{documentName}.json").AllowAnonymous();
 app.MapControllers();
+app.Logger.LogInformation("Iniciando API. Logs diarios en {Directorio}.", logsDirectory);
 app.Run();
 
 public partial class Program { }

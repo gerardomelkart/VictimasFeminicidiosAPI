@@ -36,16 +36,16 @@ dotnet run --project VictimasFeminicidiosAPI --launch-profile https
 
 La API rechaza el arranque si falta la conexion o si la clave no es Base64 de al menos 64 bytes. Usar otra clave aleatoria para produccion. No reutilizar claves de SIIID ni versionarlas. Mantener esta clave estable entre ejecuciones; cambiarla invalida todos los tokens.
 
-URL local: `https://localhost:7040`. OpenAPI JSON solamente en desarrollo: `/openapi/v1.json`. Si hace falta, confiar en el certificado de desarrollo con `dotnet dev-certs https --trust`. No hay pantalla de login ni Swagger UI.
+URL local: `https://localhost:7040`. OpenAPI JSON solamente en desarrollo: `/openapiFeminicidios.json`. Si hace falta, confiar en el certificado de desarrollo con `dotnet dev-certs https --trust`. No hay pantalla de login ni Swagger UI.
 
 ## Probar el acceso y crear la cuenta DIF
 
-1. `POST /api/v1/auth/token`, con JSON `{"origen":"SIIID","usuario":"TU_SUPERUSUARIO","password":"TU_PASSWORD"}`. Debe ser una cuenta activa con rol activo SUPER_USUARIO. Si requiere cambiar contrasena, realizar el cambio en SIIID antes de ingresar aqui.
+1. `POST /apiFeminicidios/auth/token`, con JSON `{"origen":"SIIID","usuario":"TU_SUPERUSUARIO","password":"TU_PASSWORD"}`. Debe ser una cuenta activa con rol activo SUPER_USUARIO. Si requiere cambiar contrasena, realizar el cambio en SIIID antes de ingresar aqui.
 2. Copiar `accessToken` de la respuesta. Enviar `Authorization: Bearer TOKEN` en las peticiones protegidas.
-3. `GET /api/v1/auth/me` comprueba el acceso. `GET /api/v1/usuarios` lista las cuentas externas sin hashes.
-4. Crear DIF con `POST /api/v1/usuarios`, JSON `{"usuario":"DIF","nombre":"Consulta DIF","institucion":"DIF","password":"CONTRASENA_PRIVADA_DE_AL_MENOS_12_CARACTERES"}`. Elegir la contrasena fuera de Git; la API almacena BCrypt con costo 12, no texto claro. Maximo 72 bytes UTF-8 para evitar truncamiento BCrypt.
-5. DIF solicita su token con `POST /api/v1/auth/token`, JSON `{"origen":"EXTERNO","usuario":"DIF","password":"SU_PASSWORD"}`. Tiene acceso de consulta; no puede administrar usuarios.
-6. Un superusuario puede deshabilitar mediante `PATCH /api/v1/usuarios/ID/habilitado`, JSON `{"habilitado":false}`, o restablecer contrasena con `PUT /api/v1/usuarios/ID/password`, JSON `{"password":"NUEVA_PASSWORD_PRIVADA"}`.
+3. `GET /apiFeminicidios/auth/me` comprueba el acceso. `GET /apiFeminicidios/usuarios` lista las cuentas externas sin hashes.
+4. Crear DIF con `POST /apiFeminicidios/usuarios`, JSON `{"usuario":"DIF","nombre":"Consulta DIF","institucion":"DIF","password":"CONTRASENA_PRIVADA_DE_AL_MENOS_12_CARACTERES"}`. Elegir la contrasena fuera de Git; la API almacena BCrypt con costo 12, no texto claro. Maximo 72 bytes UTF-8 para evitar truncamiento BCrypt.
+5. DIF solicita su token con `POST /apiFeminicidios/auth/token`, JSON `{"origen":"EXTERNO","usuario":"DIF","password":"SU_PASSWORD"}`. Tiene acceso de consulta; no puede administrar usuarios.
+6. Un superusuario puede deshabilitar mediante `PATCH /apiFeminicidios/usuarios/ID/habilitado`, JSON `{"habilitado":false}`, o restablecer contrasena con `PUT /apiFeminicidios/usuarios/ID/password`, JSON `{"password":"NUEVA_PASSWORD_PRIVADA"}`.
 
 No existe registro publico. El origen es explicito para evitar confusiones entre nombres coincidentes. No se aceptan tokens emitidos por la API SIIID.
 
@@ -72,7 +72,7 @@ Servidor y base SIIID existentes. Configurar mediante archivo de entorno privado
 
 No copiar las credenciales de la API SIIID al repositorio. Usar `Encrypt=True` y validar el certificado SQL en produccion; revisar la confianza del certificado del servidor antes del despliegue. La configuracion actual de SIIID usa `TrustServerCertificate=True`, lo cual se debe revisar para este servicio.
 
-Ruta prevista: `https://cni03.sspc.gob.mx/api-feminicidios/`. Servicio y puerto local propios; comprobar disponibilidad al publicar. Todavia no se configura Apache ni systemd.
+Ruta prevista: `https://cni03.sspc.gob.mx/apiFeminicidios/`. Servicio y puerto local propios; comprobar disponibilidad al publicar. Todavia no se configura Apache ni systemd.
 
 ## Pendiente: consulta y descargas
 
@@ -84,3 +84,11 @@ La revision de `InformeRepository.SabanasVictimasEstatales.cs` en SIIID confirma
 La consulta de la siguiente entrega debe usar anio/mes de corte y feminicidios consumados, sin previos, mixtos ni Federal. Respetara las 48 columnas con encabezado del Excel de referencia, sin ReferenciaCarga ni columna vacia, con MesCorte en letras. Validar cardinalidad victima/delito y equivalencia JSON/Excel.
 
 Solo se modifica este repositorio, sin ramas adicionales y con un commit por entrega. Los repositorios SIIID son referencia de lectura. Los scripts SQL se entregan por el chat para que el propietario los ejecute y guarde en el repositorio de BD.
+
+## Logs
+
+Serilog escribe en consola y en `logs/api-feminicidios-YYYYMMDD.log`, relativo a la carpeta del proyecto/publicacion. El archivo del dia se abre para agregar registros; reiniciar la API no lo borra. No se borran historicos automaticamente ni se trunca el archivo por tamano. Los logs estan excluidos de Git.
+
+Se registran inicio, acceso correcto/rechazado, administracion de usuarios, errores y una linea por peticion con metodo, plantilla de ruta, estado HTTP, duracion, ID/origen del usuario autenticado y TraceId. Se incluyen 401, 403, 429 y errores 500. No se registran cuerpos, Authorization, tokens, contrasenas ni query strings. Microsoft/System se limitan a Warning para evitar logs rutinarios de URLs completas.
+
+Para cambiar la carpeta usar `Logs:Directory` en User Secrets (desarrollo) o `Logs__Directory` en el entorno del servicio (produccion). La cuenta del proceso necesita escritura. En produccion se usara una carpeta persistente fuera del directorio reemplazado por la publicacion. El despliegue Apache posterior debe conservar el prefijo `/apiFeminicidios/` al reenviar las peticiones.
