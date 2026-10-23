@@ -13,12 +13,13 @@ public sealed class BitacoraRepository(IConfiguration configuration) : IBitacora
     {
         const string sql = """
             INSERT INTO dbo.api_feminicidios_bitacora
-                (fecha_utc, evento, origen, id_usuario, usuario, ip, trace_id, estado_http,
+                (fecha_hora_mexico, evento, origen, id_usuario, usuario, ip, trace_id, estado_http,
                  anio, mes, formato, total_registros, duracion_ms)
-            VALUES (@FechaUtc, @Evento, @Origen, @IdUsuario, @Usuario, @Ip, @TraceId,
+            VALUES (@FechaHoraMexico, @Evento, @Origen, @IdUsuario, @Usuario, @Ip, @TraceId,
                     @EstadoHttp, @Anio, @Mes, @Formato, @TotalRegistros, @DuracionMs);
             """;
         await using var connection = new SqlConnection(_connectionString);
         await connection.ExecuteAsync(new CommandDefinition(sql, evento, commandTimeout: 5, cancellationToken: ct));
     }
 }
+

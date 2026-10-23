@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using VictimasFeminicidiosAPI.Data;
 using VictimasFeminicidiosAPI.Models;
+using VictimasFeminicidiosAPI.Services;
 
 namespace VictimasFeminicidiosAPI.Middleware;
 
@@ -17,7 +18,7 @@ public sealed class BitacoraMiddleware(RequestDelegate next, ILogger<BitacoraMid
             && string.Equals(context.Request.Path.Value?.TrimEnd('/'), "/apiFeminicidios/consulta", StringComparison.OrdinalIgnoreCase);
         if (!login && !consulta) { await next(context); return; }
 
-        var inicio = DateTime.UtcNow;
+        var inicio = HoraCiudadMexico.ConvertirDesdeUtc(DateTime.UtcNow);
         var reloj = Stopwatch.GetTimestamp();
         var salida = context.Response.Body;
         // No entregar un token ni datos si falla el registro obligatorio en SQL.
@@ -77,3 +78,4 @@ public sealed class BitacoraMiddleware(RequestDelegate next, ILogger<BitacoraMid
         "" => "json", "json" => "json", "xlsx" => "xlsx", _ => null
     };
 }
+

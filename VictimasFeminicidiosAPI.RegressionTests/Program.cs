@@ -45,6 +45,17 @@ Check(!PasswordService.EsNuevaPasswordValida(new string('ñ', 37)), "BCrypt no d
 Check(!PasswordService.EsNuevaPasswordValida("corta"), "Contraseña demasiado corta");
 BadConfig(new JwtSettings { Issuer = "i", Audience = "a", MinutesToExpire = 61, SecretKey = secret });
 
+// La bitacora usa Ciudad de Mexico incluso si el servidor esta en otra zona.
+foreach (var (utc, esperada) in new[]
+{
+    (new DateTime(2026, 10, 23, 19, 1, 12, 690, DateTimeKind.Utc), new DateTime(2026, 10, 23, 13, 1, 12, 690)),
+    (new DateTime(2026, 7, 15, 19, 0, 0, DateTimeKind.Utc), new DateTime(2026, 7, 15, 13, 0, 0)),
+    (new DateTime(2026, 1, 1, 2, 0, 0, DateTimeKind.Utc), new DateTime(2025, 12, 31, 20, 0, 0))
+})
+{
+    var mexico = HoraCiudadMexico.ConvertirDesdeUtc(utc);
+    Check(mexico == esperada && mexico.Kind == DateTimeKind.Unspecified, "Conversion de hora de Mexico incorrecta");
+}
 // El proxy local puede reenviar esquema/IP; un emisor externo no.
 async Task<DefaultHttpContext> Forward(string peer, string? clientIp)
 {
@@ -201,6 +212,9 @@ Check((await Get("/apiFeminicidios/usuarios", admin)).StatusCode == HttpStatusCo
 factory.Repository.FallarListado = false;
 // Bitácora SQL simulada: cubre éxito, rechazos, errores y ausencia de datos sensibles.
 var eventos = factory.Bitacora.Eventos;
+var ahoraMexico = HoraCiudadMexico.ConvertirDesdeUtc(DateTime.UtcNow);
+Check(eventos.All(e => e.FechaHoraMexico <= ahoraMexico
+    && e.FechaHoraMexico >= ahoraMexico.AddMinutes(-2)), "La bitacora no guarda hora local de Mexico");
 Check(eventos.Count(e => e.Evento == "LOGIN" && e.EstadoHttp == 200) == 2, "Faltan accesos correctos");
 Check(eventos.Any(e => e.Evento == "LOGIN" && e.EstadoHttp == 401 && e.Usuario == "dif"), "Falta acceso rechazado");
 Check(eventos.Any(e => e.Evento == "LOGIN" && e.EstadoHttp == 429 && e.Usuario is null), "Falta login limitado");
@@ -214,7 +228,7 @@ foreach (var formato in new[] { "json", "xlsx" })
     Check(eventos.Any(e => e.Evento == "CONSULTA" && e.EstadoHttp == 200 && e.Mes == 8
         && e.Formato == formato && e.TotalRegistros == 0), "Consulta vacía sin bitácora: " + formato);
 }
-Check(eventos.All(e => e.FechaUtc.Kind == DateTimeKind.Utc && e.DuracionMs >= 0 && !string.IsNullOrEmpty(e.TraceId)), "Metadatos incompletos");
+Check(eventos.All(e => e.FechaHoraMexico.Kind == DateTimeKind.Unspecified && e.DuracionMs >= 0 && !string.IsNullOrEmpty(e.TraceId)), "Metadatos incompletos");
 var auditoriaJson = JsonSerializer.Serialize(eventos);
 Check(!auditoriaJson.Contains(FakeRepository.Password) && !auditoriaJson.Contains(external)
     && !auditoriaJson.Contains("=1+1") && !auditoriaJson.Contains("01000"), "Bitácora contiene secretos/datos");
@@ -342,3 +356,4 @@ sealed class FakeBitacoraRepository : IBitacoraRepository
         return Task.CompletedTask;
     }
 }
+
