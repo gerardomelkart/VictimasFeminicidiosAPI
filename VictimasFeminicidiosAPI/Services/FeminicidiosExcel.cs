@@ -40,16 +40,16 @@ public sealed class FeminicidiosExcel
                     cell.Style.DateFormat.Format = "yyyy-mm-dd hh:mm:ss";
                 }
                 else if (value is int number) cell.Value = number;
-                else cell.Value = (string)value; // Texto literal, nunca FormulaA1: protege CURP/CP y evita fórmulas.
+                else cell.Value = (string)value; // Texto literal, nunca FormulaA1: protege CURP y evita fórmulas.
             }
         }
         sheet.Row(1).Style.Font.Bold = true;
         sheet.SheetView.FreezeRows(1);
         sheet.Range(1, 1, Math.Max(1, registros.Count + 1), Properties.Length).SetAutoFilter();
         sheet.Columns(1, Properties.Length).Width = 22;
-        sheet.Column(23).Width = 60; // ResumenHechos: texto completo disponible, sin reducir fuente.
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
     }
 }
+

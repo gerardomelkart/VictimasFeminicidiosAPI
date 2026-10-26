@@ -83,9 +83,39 @@ GET https://localhost:7040/apiFeminicidios/consulta?anio=2026&mes=9&formato=json
 Authorization: Bearer TOKEN
 ```
 
-Cambiar `formato=xlsx` descarga `feminicidios_2026_09.xlsx`. Si se omite formato se usa JSON. Anio (2000 a 2100) y mes (1 a 12) son obligatorios. Parametros invalidos producen HTTP 400. Ambos formatos llevan `X-Total-Registros` con el conteo. Sin registros, JSON devuelve `[]` y Excel conserva sus 48 encabezados.
+Cambiar `formato=xlsx` descarga `feminicidios_2026_09.xlsx`. Si se omite formato se usa JSON. Anio (2000 a 2100) y mes (1 a 12) son obligatorios. Parametros invalidos producen HTTP 400. Ambos formatos llevan `X-Total-Registros` con el conteo. Sin registros, JSON devuelve `[]` y Excel conserva sus 27 encabezados.
 
-Los nombres, orden y significado de las columnas siguen el ejemplo de septiembre. No se incluye ReferenciaCarga ni la columna vacia. MesCorte se devuelve en mayusculas en espanol, las fechas de nacimiento/inicio/hechos como `yyyy-MM-dd` en JSON y fechas numericas en Excel. Horas `HH:mm:ss`, identificadores/CURP/CP como texto, nulos JSON como `null` y celdas Excel vacias. FechaRegistro conserva la fecha de registro de la carpeta, como la consulta nominal anterior. Excel guarda textos como valores literales, sin formulas.
+Los nombres y el orden de las 27 columnas siguen el ejemplo reducido de septiembre. JSON y Excel entregan el mismo contrato. Fechas de nacimiento/inicio/hechos como `yyyy-MM-dd` en JSON y fechas numericas en Excel; horas `HH:mm:ss`; NumeroCarpeta y CURP como texto; nulos JSON como `null` y celdas Excel vacias. Excel guarda textos como valores literales, sin formulas. Anio y mes siguen siendo parametros obligatorios de consulta, aunque no se incluyen como columnas del resultado.
+
+Columnas publicadas, en orden:
+
+1. `Nombre`
+2. `PrimerApellido`
+3. `SegundoApellido`
+4. `CURP`
+5. `Sexo`
+6. `Genero`
+7. `FechaNacimiento`
+8. `Edad`
+9. `Nacionalidad`
+10. `EntidadReportante`
+11. `NumeroCarpeta`
+12. `FechaInicioCarpeta`
+13. `HoraInicioCarpeta`
+14. `DelitoFiscalia`
+15. `ModalidadFiscalia`
+16. `BienJuridico`
+17. `DelitoCatalogo`
+18. `SubtipoDelito`
+19. `ModalidadCatalogo`
+20. `FormaAccion`
+21. `InstrumentoComision`
+22. `GradoConsumacion`
+23. `FechaHechos`
+24. `HoraHechos`
+25. `BienJuridicoSabana`
+26. `EntidadHechos`
+27. `MunicipioHechos`
 
 El SQL esta en `Data/FeminicidiosSql.cs` y consulta directamente tablas, sin crear vistas, procedimientos ni otros objetos. Usa el mes/anio de corte de la carga de la carpeta (no la fecha de hechos) y verifica carpeta/delito/victima activos y las tres cargas activas con estos pares:
 
@@ -94,7 +124,7 @@ El SQL esta en `Data/FeminicidiosSql.cs` y consulta directamente tablas, sin cre
 
 Filtra `subtipo_delito = 'Feminicidio'` y `grado_consumacion.descripcion = 'Consumado'`, como el query previo. Excluye tentativas, previos, pendientes, rechazados y Federal; conserva la exclusion del usuario federal de las vistas nominales existentes. Las relaciones de sabana con textos identicos se unifican antes del join. Si quedan clasificaciones ambiguas que dupliquen un registro de victima, la API registra un error y no exporta un resultado duplicado.
 
-La consulta y conteo quedan en el log, sin datos nominales. Las pruebas automaticas comprueban contrato de 48 columnas contra encabezados extraidos del ejemplo, JSON/Excel, parametros, celdas tipadas, textos que parecen formulas y duplicados. La ejecucion del SQL y la conciliacion de septiembre contra los datos reales se deben probar en la base local del propietario.
+La consulta y conteo quedan en el log, sin datos nominales. Las pruebas automaticas comprueban contrato de 27 columnas contra encabezados extraidos del ejemplo, JSON/Excel, parametros, celdas tipadas, textos que parecen formulas y duplicados. La ejecucion del SQL y la conciliacion de septiembre contra los datos reales se deben probar en la base local del propietario.
 
 Los nuevos tokens duran una hora (`expiresIn=3600`). Los ya emitidos mantienen su vencimiento original: solicitar otro token despues de reiniciar la API. No hace falta cambiar la clave JWT ni la tabla.
 
@@ -132,3 +162,8 @@ Validar en desarrollo: login correcto/incorrecto, JSON, XLSX, mes vacio y parame
 La columna `fecha_hora_mexico` (datetime2) guarda la hora de inicio de la peticion en Ciudad de Mexico. La API convierte UTC con la zona `America/Mexico_City`, sin depender de la zona del sistema operativo. Windows y Linux deben disponer de sus datos de zonas horarias. Las fechas de los JWT siguen en UTC y su vigencia permanece en una hora.
 
 Antes de esta version se guardaba UTC en `fecha_utc`. Para actualizar, detener `api-feminicidios.service`, ejecutar el script entregado por chat que convierte una sola vez las filas existentes (UTC menos seis horas para los registros actuales de 2026) y renombra la columna a `fecha_hora_mexico`; despues instalar la nueva publicacion. Primero validar en desarrollo. Los indices existentes conservan su asociacion a la columna renombrada. No ejecutar API anterior con el esquema nuevo ni API nueva con el anterior. No se ejecutan migraciones automaticas ni se requiere cambiar la zona del servidor. El repositorio de BD lo actualiza el propietario.
+
+
+### Cambio del contrato de columnas
+
+La salida se redujo de 48 a 27 campos para coincidir con el nuevo ejemplo del consumidor. Se actualizan SELECT, modelo JSON y encabezados Excel; el ID interno permanece oculto para validar duplicados. Se conservan rutas, autenticacion, filtros mensuales y reglas de aprobacion. No requiere SQL de migracion. Actualizar consumidores y manuales que aun enumeren las 48 columnas anteriores. No se incorpora al repositorio el archivo de referencia ni sus registros; solamente los nombres de los encabezados.

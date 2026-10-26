@@ -12,32 +12,20 @@ internal static class FeminicidiosSql
         )
         SELECT
             v.id_victima AS IdRegistro,
-            v.identificador_victima_fiscalia AS IdentificadorVictima,
             v.nombre_vicfem AS Nombre,
             v.primer_apellido_vicfem AS PrimerApellido,
             v.segundo_apellido_vicfem AS SegundoApellido,
             v.curp_vicfem AS CURP,
-            tv.descripcion AS TipoVictima,
-            tvm.descripcion AS TipoPersonaMoral,
             sx.descripcion AS Sexo,
             gen.descripcion AS Genero,
-            pob.descripcion AS PoblacionIndigena,
-            disc.descripcion AS Discapacidad,
             CONVERT(nvarchar(10), v.fecha_nacimiento, 23) AS FechaNacimiento,
             CONVERT(int, v.edad) AS Edad,
             nac.descripcion AS Nacionalidad,
             ef_reg.nombre AS EntidadReportante,
-            u_v.usuario AS UsuarioReportante,
-            CONVERT(int, c_ci.anio_corte) AS AnioCorte,
-            CHOOSE(@Mes, N'ENERO', N'FEBRERO', N'MARZO', N'ABRIL', N'MAYO', N'JUNIO',
-                N'JULIO', N'AGOSTO', N'SEPTIEMBRE', N'OCTUBRE', N'NOVIEMBRE', N'DICIEMBRE') AS MesCorte,
-            ci.identificador_carpeta_fiscalia AS IdentificadorCarpeta,
             ci.nomenclatura_carpeta_fiscalia AS NumeroCarpeta,
             CONVERT(nvarchar(10), ci.fecha_inicio, 23) AS FechaInicioCarpeta,
             CASE WHEN CONVERT(time(0), ci.fecha_inicio) = '00:00:00' THEN N''
                 ELSE CONVERT(nvarchar(8), ci.fecha_inicio, 108) END AS HoraInicioCarpeta,
-            ci.resumen_hechos AS ResumenHechos,
-            d.identificador_delito_fiscalia AS IdentificadorDelito,
             d.delito_fiscalia AS DelitoFiscalia,
             d.modalidad_delito_fiscalia AS ModalidadFiscalia,
             bj.bien_juridico AS BienJuridico,
@@ -50,18 +38,8 @@ internal static class FeminicidiosSql
             CONVERT(nvarchar(10), d.fecha_hechos, 23) AS FechaHechos,
             CONVERT(nvarchar(8), d.fecha_hechos, 108) AS HoraHechos,
             CASE WHEN sab.id_modalidad_delito IS NULL THEN NULL ELSE bj.bien_juridico END AS BienJuridicoSabana,
-            sab.delito_sabana AS DelitoSabana,
-            sab.subtipo_delito_sabana AS SubtipoDelitoSabana,
-            sab.modalidad_delito_sabana AS ModalidadDelitoSabana,
             ef.nombre AS EntidadHechos,
-            mun.nombre AS MunicipioHechos,
-            d.localidad_fiscalia_nombre AS LocalidadHechos,
-            d.colonia_fiscalia_nombre AS ColoniaHechos,
-            COALESCE(NULLIF(LTRIM(RTRIM(d.codigo_postal_fiscalia)), N''), cp.codigo_postal) AS CodigoPostal,
-            d.domicilio_hechos AS DomicilioHechos,
-            CONVERT(nvarchar(50), d.coordenada_x) AS CoordenadaX,
-            CONVERT(nvarchar(50), d.coordenada_y) AS CoordenadaY,
-            ci.fecha_registro AS FechaRegistro
+            mun.nombre AS MunicipioHechos
         FROM dbo.carpeta_investigacion ci
         INNER JOIN dbo.delito d ON d.id_carpeta_investigacion = ci.id_carpeta_investigacion
         INNER JOIN dbo.victima v ON v.id_delito = d.id_delito
@@ -108,3 +86,4 @@ internal static class FeminicidiosSql
             d.identificador_delito_fiscalia, v.identificador_victima_fiscalia, v.id_victima;
         """;
 }
+

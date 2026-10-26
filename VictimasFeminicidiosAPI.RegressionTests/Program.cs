@@ -156,9 +156,11 @@ Check(factory.Feminicidios.UltimoPeriodo == (2026, 9), "No envía el periodo al 
 using var jsonDoc = JsonDocument.Parse(await jsonResponse.Content.ReadAsStringAsync());
 var expectedHeaders = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "ColumnasReferencia.json")))!;
 var jsonRow = jsonDoc.RootElement[0];
-Check(jsonRow.EnumerateObject().Select(x => x.Name).SequenceEqual(expectedHeaders), "JSON no coincide con las 48 columnas del ejemplo");
+Check(jsonRow.EnumerateObject().Select(x => x.Name).SequenceEqual(expectedHeaders), "JSON no coincide con las 27 columnas del ejemplo");
 Check(!jsonRow.TryGetProperty("IdRegistro", out _), "Expone ID interno de la consulta");
-Check(jsonRow.GetProperty("MesCorte").GetString() == "SEPTIEMBRE", "Mes no está en letras");
+Check(jsonRow.GetProperty("NumeroCarpeta").GetString() == "00001", "NumeroCarpeta pierde ceros iniciales");
+Check(!jsonRow.TryGetProperty("AnioCorte", out _) && !jsonRow.TryGetProperty("MesCorte", out _)
+    && !jsonRow.TryGetProperty("ResumenHechos", out _) && !jsonRow.TryGetProperty("FechaRegistro", out _), "Expone columnas retiradas");
 Check(jsonRow.GetProperty("CURP").ValueKind == JsonValueKind.Null, "NULL se convirtió en texto");
 Check(jsonResponse.Headers.GetValues("X-Total-Registros").Single() == "1", "Conteo JSON incorrecto");
 var xlsxResponse = await Get("/apiFeminicidios/consulta?anio=2026&mes=9&formato=xlsx", admin);
@@ -169,15 +171,15 @@ using (var stream = new MemoryStream(await xlsxResponse.Content.ReadAsByteArrayA
 using (var book = new XLWorkbook(stream))
 {
     var sheet = book.Worksheet(1);
-    Check(sheet.LastColumnUsed()!.ColumnNumber() == 48, "Excel incluye una columna extra");
-    Check(expectedHeaders.SequenceEqual(Enumerable.Range(1, 48).Select(c => sheet.Cell(1, c).GetString())), "Encabezados Excel distintos");
+    Check(sheet.LastColumnUsed()!.ColumnNumber() == 27, "Excel incluye una columna extra");
+    Check(expectedHeaders.SequenceEqual(Enumerable.Range(1, 27).Select(c => sheet.Cell(1, c).GetString())), "Encabezados Excel distintos");
     Check(sheet.LastRowUsed()!.RowNumber() == 2, "Excel duplica/omite datos");
-    Check(sheet.Cell(2, 2).GetString() == "=1+1" && !sheet.Cell(2, 2).HasFormula, "Excel ejecuta texto como fórmula");
-    Check(sheet.Cell(2, 44).DataType == XLDataType.Text && sheet.Cell(2, 44).GetString() == "01000", "CP pierde cero inicial");
-    Check(sheet.Cell(2, 13).GetValue<int>() == jsonRow.GetProperty("Edad").GetInt32(), "Edad Excel/JSON distinta");
-    Check(sheet.Cell(2, 21).GetDateTime().ToString("yyyy-MM-dd") == jsonRow.GetProperty("FechaInicioCarpeta").GetString(), "Fecha Excel/JSON distinta");
-    Check(sheet.Cell(2, 22).GetTimeSpan().ToString() == jsonRow.GetProperty("HoraInicioCarpeta").GetString(), "Hora Excel/JSON distinta");
-    Check(sheet.Cell(2, 5).IsEmpty(), "NULL no quedó vacío en Excel");
+    Check(sheet.Cell(2, 1).GetString() == "=1+1" && !sheet.Cell(2, 1).HasFormula, "Excel ejecuta texto como fórmula");
+    Check(sheet.Cell(2, 11).DataType == XLDataType.Text && sheet.Cell(2, 11).GetString() == "00001", "NumeroCarpeta pierde cero inicial");
+    Check(sheet.Cell(2, 8).GetValue<int>() == jsonRow.GetProperty("Edad").GetInt32(), "Edad Excel/JSON distinta");
+    Check(sheet.Cell(2, 12).GetDateTime().ToString("yyyy-MM-dd") == jsonRow.GetProperty("FechaInicioCarpeta").GetString(), "Fecha Excel/JSON distinta");
+    Check(sheet.Cell(2, 13).GetTimeSpan().ToString() == jsonRow.GetProperty("HoraInicioCarpeta").GetString(), "Hora Excel/JSON distinta");
+    Check(sheet.Cell(2, 4).IsEmpty(), "NULL no quedó vacío en Excel");
 }
 foreach (var query in new[] { "anio=2026&mes=0", "anio=2026&mes=13", "mes=9", "anio=2026", "anio=2026&mes=9&formato=csv", "anio=texto&mes=9" })
     Check((await Get("/apiFeminicidios/consulta?" + query, external)).StatusCode == HttpStatusCode.BadRequest, "Acepta parámetros inválidos: " + query);
@@ -185,7 +187,7 @@ var empty = await Get("/apiFeminicidios/consulta?anio=2026&mes=8", external);
 Check((await empty.Content.ReadAsStringAsync()) == "[]", "Periodo vacío no devuelve []");
 var emptyExcel = await Get("/apiFeminicidios/consulta?anio=2026&mes=8&formato=xlsx", external);
 using (var book = new XLWorkbook(new MemoryStream(await emptyExcel.Content.ReadAsByteArrayAsync())))
-    Check(book.Worksheet(1).LastRowUsed()!.RowNumber() == 1 && book.Worksheet(1).LastColumnUsed()!.ColumnNumber() == 48, "Excel vacío pierde encabezados");
+    Check(book.Worksheet(1).LastRowUsed()!.RowNumber() == 1 && book.Worksheet(1).LastColumnUsed()!.ColumnNumber() == 27, "Excel vacío pierde encabezados");
 factory.Feminicidios.Duplicar = true;
 Check((await Get("/apiFeminicidios/consulta?anio=2026&mes=9", external)).StatusCode == HttpStatusCode.InternalServerError, "Publica filas ambiguas duplicadas");
 factory.Feminicidios.Duplicar = false;
@@ -231,11 +233,11 @@ foreach (var formato in new[] { "json", "xlsx" })
 Check(eventos.All(e => e.FechaHoraMexico.Kind == DateTimeKind.Unspecified && e.DuracionMs >= 0 && !string.IsNullOrEmpty(e.TraceId)), "Metadatos incompletos");
 var auditoriaJson = JsonSerializer.Serialize(eventos);
 Check(!auditoriaJson.Contains(FakeRepository.Password) && !auditoriaJson.Contains(external)
-    && !auditoriaJson.Contains("=1+1") && !auditoriaJson.Contains("01000"), "Bitácora contiene secretos/datos");
+    && !auditoriaJson.Contains("=1+1") && !auditoriaJson.Contains("00001"), "Bitácora contiene secretos/datos");
 factory.Bitacora.Fallar = true;
 var sinBitacora = await Get("/apiFeminicidios/consulta?anio=2026&mes=9", admin);
 Check(sinBitacora.StatusCode == HttpStatusCode.ServiceUnavailable
-    && !(await sinBitacora.Content.ReadAsStringAsync()).Contains("IdentificadorVictima")
+    && !(await sinBitacora.Content.ReadAsStringAsync()).Contains("NumeroCarpeta")
     && !sinBitacora.Headers.Contains("X-Total-Registros"), "Entrega datos sin bitácora");
 factory.Bitacora.Fallar = false;
 await using (var auditFailure = new ApiFactory())
@@ -258,7 +260,7 @@ Check(logText.Contains("TraceId") && logText.Contains("Autenticación correcta")
     && logText.Contains("Autenticación rechazada") && logText.Contains("Usuario externo"), "Falta auditoría");
 Check(!logText.Contains(FakeRepository.Password) && !logText.Contains(admin)
     && !logText.Contains(external) && !logText.Contains("NO_GUARDAR_QUERY")
-    && !logText.Contains("=1+1") && !logText.Contains("01000"), "El log contiene secretos");
+    && !logText.Contains("=1+1") && !logText.Contains("00001"), "El log contiene secretos");
 await using (var restart = new ApiFactory())
 {
     using var restartedClient = restart.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
@@ -334,12 +336,11 @@ sealed class FakeFeminicidiosRepository : IFeminicidiosRepository
         if (mes == 8) return Task.FromResult<IReadOnlyList<FeminicidioRegistro>>([]);
         var row = new FeminicidioRegistro
         {
-            IdRegistro = 1, IdentificadorVictima = "0001", Nombre = "=1+1", CURP = null,
-            Edad = 30, AnioCorte = 2026, MesCorte = "SEPTIEMBRE", IdentificadorCarpeta = "00001",
+            IdRegistro = 1, Nombre = "=1+1", CURP = null,
+            Edad = 30, NumeroCarpeta = "00001",
             FechaInicioCarpeta = "2026-09-01", HoraInicioCarpeta = "16:40:50",
-            FechaHechos = "2026-09-01", HoraHechos = "00:00:00", CodigoPostal = "01000",
-            GradoConsumacion = "Consumado", SubtipoDelito = "Feminicidio",
-            FechaRegistro = new DateTime(2026, 9, 2, 12, 0, 0)
+            FechaHechos = "2026-09-01", HoraHechos = "00:00:00",
+            GradoConsumacion = "Consumado", SubtipoDelito = "Feminicidio"
         };
         return Task.FromResult<IReadOnlyList<FeminicidioRegistro>>(Duplicar ? [row, row] : [row]);
     }
